@@ -1,9 +1,12 @@
 import posixpath
 import os
 from types import TracebackType
-from typing import ClassVar, List, Type, Iterable, Set, Iterator
+from typing import ClassVar, List, Type, Iterable, Set, Iterator, Optional
 from fsspec import AbstractFileSystem
 from contextlib import contextmanager
+
+import pyarrow.parquet
+import json
 
 import dlt
 from dlt.common import logger
@@ -17,6 +20,9 @@ from dlt.common.destination.reference import (
     JobClientBase,
     FollowupJob,
     WithStagingDataset,
+    WithStateSync,
+    StateInfo,
+    StorageSchemaInfo,
 )
 
 from dlt.destinations.job_impl import EmptyLoadJob
@@ -86,7 +92,7 @@ class FollowupFilesystemJob(FollowupJob, LoadFilesystemJob):
         return jobs
 
 
-class FilesystemClient(JobClientBase, WithStagingDataset):
+class FilesystemClient(JobClientBase, WithStagingDataset, WithStateSync):
     """filesystem client storing jobs in memory"""
 
     capabilities: ClassVar[DestinationCapabilitiesContext] = capabilities()
@@ -121,6 +127,36 @@ class FilesystemClient(JobClientBase, WithStagingDataset):
         finally:
             # restore previous dataset name
             self._dataset_path = current_dataset_path
+
+    def get_stored_state(self, pipeline_name: str) -> Optional[StateInfo]:
+        """Loads compressed state from destination storage"""
+
+        all_state_files = self.fs_client.ls(posixpath.join(self.dataset_path, "_dlt_pipeline_state"))
+
+        with self.fs_client.open(all_state_files[0], "rb") as f:
+            with pyarrow.parquet.ParquetFile(f) as pq:
+                df = pq.read().to_pandas()
+                json_data = df.to_json(orient="records")
+                state_json = json.loads(json_data)[0]
+                state = {
+                    "version": state_json["version"],
+                    "engine_version": state_json["engine_version"],
+                    "pipeline_name": state_json["pipeline_name"],
+                    "state": state_json["state"],
+                    "created_at": state_json["created_at"],
+                    "dlt_load_id": state_json["_dlt_load_id"],
+                }
+            return StateInfo(**state)
+
+        return None
+
+    def get_stored_schema(self) -> Optional[StorageSchemaInfo]:
+        """Retrieves newest schema from destination storage"""
+
+        return None
+
+    def get_stored_schema_by_hash(self, schema_hash: str) -> Optional[StorageSchemaInfo]:
+        return None
 
     def initialize_storage(self, truncate_tables: Iterable[str] = None) -> None:
         # clean up existing files for tables selected for truncating
