@@ -130,9 +130,8 @@ class FilesystemClient(JobClientBase, WithStagingDataset, WithStateSync):
 
     def get_stored_state(self, pipeline_name: str) -> Optional[StateInfo]:
         """Loads compressed state from destination storage"""
-
-        all_state_files = self.fs_client.ls(posixpath.join(self.dataset_path, "_dlt_pipeline_state"))
         try:
+            all_state_files = self.fs_client.ls(posixpath.join(self.dataset_path, "_dlt_pipeline_state"))
             with self.fs_client.open(all_state_files[0], "rb") as f:
                 with pyarrow.parquet.ParquetFile(f) as pq:
                     df = pq.read().to_pandas()
