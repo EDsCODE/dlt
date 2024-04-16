@@ -132,23 +132,23 @@ class FilesystemClient(JobClientBase, WithStagingDataset, WithStateSync):
         """Loads compressed state from destination storage"""
 
         all_state_files = self.fs_client.ls(posixpath.join(self.dataset_path, "_dlt_pipeline_state"))
-
-        with self.fs_client.open(all_state_files[0], "rb") as f:
-            with pyarrow.parquet.ParquetFile(f) as pq:
-                df = pq.read().to_pandas()
-                json_data = df.to_json(orient="records")
-                state_json = json.loads(json_data)[0]
-                state = {
-                    "version": state_json["version"],
-                    "engine_version": state_json["engine_version"],
-                    "pipeline_name": state_json["pipeline_name"],
-                    "state": state_json["state"],
-                    "created_at": state_json["created_at"],
-                    "dlt_load_id": state_json["_dlt_load_id"],
-                }
-            return StateInfo(**state)
-
-        return None
+        try:
+            with self.fs_client.open(all_state_files[0], "rb") as f:
+                with pyarrow.parquet.ParquetFile(f) as pq:
+                    df = pq.read().to_pandas()
+                    json_data = df.to_json(orient="records")
+                    state_json = json.loads(json_data)[0]
+                    state = {
+                        "version": state_json["version"],
+                        "engine_version": state_json["engine_version"],
+                        "pipeline_name": state_json["pipeline_name"],
+                        "state": state_json["state"],
+                        "created_at": state_json["created_at"],
+                        "dlt_load_id": state_json["_dlt_load_id"],
+                    }
+                return StateInfo(**state)
+        except:
+            return None
 
     def get_stored_schema(self) -> Optional[StorageSchemaInfo]:
         """Retrieves newest schema from destination storage"""
